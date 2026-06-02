@@ -1,41 +1,49 @@
 import { Suspense } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import Home from "@/pages/home";
+import Pools from "@/pages/pools";
 import { LoadingSkeleton } from "./components/loading";
-import MainLayout from "./layouts/main-layout";
-import { useLedgerStore } from "./store/ledger";
+import HorizonLayout from "./layouts/horizon-layout";
 import { lazyWithReload } from "./utils/lazy";
 
-const Stat = lazyWithReload(
-    async () => {
-        return import("@/pages/stat");
-    },
-    async () => {
-        // 加载stat页面前需要获取全部账单数据
-        await useLedgerStore.getState().refreshBillList();
-    },
-);
-
-const Search = lazyWithReload(() => import("@/pages/search"));
+const Wizard = lazyWithReload(() => import("@/pages/wizard"));
+const Progress = lazyWithReload(() => import("@/pages/progress"));
+const PoolDetail = lazyWithReload(() => import("@/pages/pool-detail"));
+const Living = lazyWithReload(() => import("@/pages/living"));
 
 function RootRoute() {
     return (
         <Routes>
-            <Route element={<MainLayout />}>
-                <Route index element={<Home />} />
+            <Route element={<HorizonLayout />}>
+                <Route index element={<Pools />} />
                 <Route
-                    path="/search"
+                    path="/wizard"
                     element={
                         <Suspense fallback={<LoadingSkeleton />}>
-                            <Search />
+                            <Wizard />
                         </Suspense>
                     }
                 />
                 <Route
-                    path="/stat/:id?"
+                    path="/progress/:goalId"
                     element={
                         <Suspense fallback={<LoadingSkeleton />}>
-                            <Stat />
+                            <Progress />
+                        </Suspense>
+                    }
+                />
+                <Route
+                    path="/pool/:id"
+                    element={
+                        <Suspense fallback={<LoadingSkeleton />}>
+                            <PoolDetail />
+                        </Suspense>
+                    }
+                />
+                <Route
+                    path="/living"
+                    element={
+                        <Suspense fallback={<LoadingSkeleton />}>
+                            <Living />
                         </Suspense>
                     }
                 />

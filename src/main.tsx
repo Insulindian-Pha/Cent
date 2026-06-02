@@ -5,7 +5,6 @@ import { StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 
-import Login from "./components/login";
 import { initIntl, LocaleProvider } from "./locale/index";
 import { usePreferenceStore } from "./store/preference";
 import { register as registerLaunchQueue } from "./utils/launch-queue";
@@ -21,14 +20,9 @@ initIntl(lang).then(() => {
                 <Suspense>
                     <Rooot />
                 </Suspense>
-                <Login />
             </LocaleProvider>
         </StrictMode>,
     );
 });
 
 registerLaunchQueue();
-
-import("./agent-api").then(({ bootAgentApi }) => {
-    void bootAgentApi();
-});
