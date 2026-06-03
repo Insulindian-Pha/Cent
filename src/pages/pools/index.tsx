@@ -17,10 +17,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+    CalendarDays,
     GripVertical,
     Image,
     List,
-    PiggyBank,
     Plus,
     Target,
     Wallet,
@@ -106,10 +106,14 @@ function PoolCard({
     pool,
     onTap,
     onDelete,
+    isLiving,
+    livingDaily,
 }: {
     pool: FundPool;
     onTap: (id: string) => void;
     onDelete: (pool: FundPool) => void;
+    isLiving?: boolean;
+    livingDaily?: number;
 }) {
     const {
         attributes,
@@ -137,7 +141,6 @@ function PoolCard({
         >
             <div className="p-4 rounded-xl border border-border bg-card text-card-foreground group hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3">
-                    {/* 拖拽手柄 */}
                     <button
                         {...attributes}
                         {...listeners}
@@ -152,27 +155,98 @@ function PoolCard({
                         className="flex flex-1 items-center gap-3 min-w-0 text-left border-0 bg-transparent p-0 cursor-pointer"
                         onClick={() => onTap(pool.id)}
                     >
-                        {/* 图标 + 名称 */}
                         <span className="text-2xl">{pool.icon}</span>
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                                 <span className="font-semibold text-foreground truncate">
                                     {pool.name}
                                 </span>
-                                <span className="text-xs shrink-0 px-1.5 py-0.5 rounded-md bg-secondary text-secondary-foreground font-medium">
-                                    {RULE_LABELS[pool.rule] ?? pool.rule}
-                                </span>
+                                {isLiving ? (
+                                    <span className="text-xs shrink-0 px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-medium">
+                                        生活费
+                                    </span>
+                                ) : (
+                                    <span className="text-xs shrink-0 px-1.5 py-0.5 rounded-md bg-secondary text-secondary-foreground font-medium">
+                                        {RULE_LABELS[pool.rule] ?? pool.rule}
+                                    </span>
+                                )}
                             </div>
                             <span className="text-xs text-muted-foreground">
-                                优先级 {pool.priority}
-                                {pool.subItems.length > 0 &&
-                                    ` · ${pool.subItems.length} 个子项`}
+                                {isLiving
+                                    ? `每 ¥${(livingDaily ?? 0).toLocaleString()}/天`
+                                    : `优先级 ${pool.priority}${pool.subItems.length > 0 ? ` · ${pool.subItems.length} 个子项` : ""}`}
                             </span>
                         </div>
 
-                        {/* 余额 / 固定扣款 */}
-                        <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
-                            {isExpensePool(pool) ? (
+                        <div className="text-right shrink-0 flex items-center gap-2">
+                            {isLiving ? (
+                                // 生活费池：迷你环形进度条
+                                (() => {
+                                    const sv = 40;
+                                    const sw = 4;
+                                    const sr = (sv - sw) / 2;
+                                    const sc = 2 * Math.PI * sr;
+                                    const alloc =
+                                        pool.fixedAmount ?? pool.balance;
+                                    const hasBalance = pool.balance > 0;
+                                    const s = hasBalance
+                                        ? Math.max(0, alloc - pool.balance)
+                                        : 0;
+                                    const pct =
+                                        hasBalance && alloc > 0
+                                            ? (s / alloc) * 100
+                                            : 0;
+                                    const so =
+                                        sc - (Math.min(pct, 100) / 100) * sc;
+                                    const scolor = hasBalance
+                                        ? pct > 90
+                                            ? "stroke-red-500"
+                                            : pct > 70
+                                              ? "stroke-amber-500"
+                                              : "stroke-emerald-500"
+                                        : "stroke-muted-foreground/30";
+                                    return (
+                                        <div className="relative shrink-0">
+                                            <svg
+                                                width={sv}
+                                                height={sv}
+                                                className="-rotate-90"
+                                                role="img"
+                                                aria-label={`生活费剩余 ¥${pool.balance.toLocaleString()}`}
+                                            >
+                                                <circle
+                                                    cx={sv / 2}
+                                                    cy={sv / 2}
+                                                    r={sr}
+                                                    fill="none"
+                                                    className="stroke-muted-foreground/20"
+                                                    strokeWidth={sw}
+                                                />
+                                                <circle
+                                                    cx={sv / 2}
+                                                    cy={sv / 2}
+                                                    r={sr}
+                                                    fill="none"
+                                                    className={scolor}
+                                                    strokeWidth={sw}
+                                                    strokeLinecap="round"
+                                                    strokeDasharray={sc}
+                                                    strokeDashoffset={so}
+                                                />
+                                            </svg>
+                                            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold tabular-nums">
+                                                {hasBalance
+                                                    ? `¥${(
+                                                          pool.balance >= 1000
+                                                              ? `${(pool.balance / 1000).toFixed(1)}k`
+                                                              : pool.balance.toLocaleString()
+                                                      ).replace(",", "")}`
+                                                    : "待分"}
+                                            </span>
+                                        </div>
+                                    );
+                                })()
+                            ) : isExpensePool(pool) ? (
                                 isQuotaFullyDeducted(pool) ? (
                                     <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600 dark:text-emerald-400">
                                         <span className="size-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs">
@@ -191,7 +265,7 @@ function PoolCard({
                                 )
                             ) : (
                                 <motion.span
-                                    className="text-xl font-bold tabular-nums text-foreground"
+                                    className="text-lg font-bold tabular-nums text-foreground"
                                     key={pool.balance}
                                     initial={{ scale: 1.2 }}
                                     animate={{ scale: 1 }}
@@ -207,7 +281,6 @@ function PoolCard({
                         </div>
                     </button>
 
-                    {/* 删除 */}
                     <button
                         type="button"
                         onClick={() => onDelete(pool)}
@@ -619,18 +692,51 @@ export default function PoolsPage() {
     const navigate = useNavigate();
     const pools = useHorizonStore((s) => s.pools);
     const goals = useHorizonStore((s) => s.goals);
+    const livingConfig = useHorizonStore((s) => s.livingConfig);
     const deleteGoal = useHorizonStore((s) => s.deleteGoal);
     const removePool = useHorizonStore((s) => s.removePool);
     const reorderPools = useHorizonStore((s) => s.reorderPools);
     const rebalancePools = useHorizonStore((s) => s.rebalancePools);
+    const ensureDailyDecrement = useHorizonStore((s) => s.ensureDailyDecrement);
     const didRebalance = useRef(false);
 
-    // 打开首页时补平历史数据（高优先级池从兜底自动划款）
+    // 打开首页时补平历史数据 + 每日生活费扣减
     useEffect(() => {
         if (didRebalance.current) return;
         didRebalance.current = true;
         rebalancePools();
-    }, [rebalancePools]);
+        ensureDailyDecrement();
+
+        // 旧数据兼容：如果生活费池子不存在，创建一个
+        const st = useHorizonStore.getState();
+        const lpId = st.livingConfig.linkedPoolId;
+        if (!lpId || !st.pools.some((p) => p.id === lpId)) {
+            const days = new Date(
+                new Date().getFullYear(),
+                new Date().getMonth() + 1,
+                0,
+            ).getDate();
+            st.addPool({
+                name: "生活费",
+                icon: "🍜",
+                color: "teal",
+                rule: "residual-factor",
+                residualFactor: 0,
+                fixedAmount: st.livingConfig.dailyBudget * days,
+                priority: 2,
+                subItems: [],
+            });
+            // addPool 之后 pool 已同步写入，找名字匹配的
+            const newPool = useHorizonStore
+                .getState()
+                .pools.find((p) => p.name === "生活费");
+            if (newPool) {
+                st.linkLivingPool(newPool.id);
+            }
+        }
+    }, [rebalancePools, ensureDailyDecrement]);
+
+    const livingPoolId = livingConfig.linkedPoolId;
 
     const [salaryOpen, setSalaryOpen] = useState(false);
     const [addPoolOpen, setAddPoolOpen] = useState(false);
@@ -674,7 +780,11 @@ export default function PoolsPage() {
     };
 
     const handleTap = (id: string) => {
-        navigate(`/pool/${id}`);
+        if (id === livingPoolId) {
+            navigate("/calendar");
+        } else {
+            navigate(`/pool/${id}`);
+        }
     };
 
     return (
@@ -686,10 +796,10 @@ export default function PoolsPage() {
                     <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => navigate("/living")}
+                        onClick={() => navigate("/calendar")}
                     >
-                        <PiggyBank className="size-4 mr-1" />
-                        生活费
+                        <CalendarDays className="size-4 mr-1" />
+                        日历
                     </Button>
                     <Button
                         size="sm"
@@ -862,6 +972,8 @@ export default function PoolsPage() {
                                                 name: p.name,
                                             })
                                         }
+                                        isLiving={pool.id === livingPoolId}
+                                        livingDaily={livingConfig.dailyBudget}
                                     />
                                 ))}
                             </AnimatePresence>

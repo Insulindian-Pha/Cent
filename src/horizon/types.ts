@@ -150,16 +150,30 @@ export interface DailyExpense {
 
 export interface LivingConfig {
     dailyBudget: number; // 每日预算
-    monthlyRent: number; // 月房租
-    rentDayOfMonth: number; // 交租日
-    linkedPoolId?: string; // 可选：绑定资金池
+    monthlyRent: number; // 月房租（已由池子管理，仅作参考）
+    rentDayOfMonth: number; // 交租日（已由池子管理，仅作参考）
+    linkedPoolId?: string; // 绑定的生活费资金池 id
+    lastDecrementDate: string | null; // 上次自动扣减日期 YYYY-MM-DD
 }
 
 export const DEFAULT_LIVING_CONFIG: LivingConfig = {
     dailyBudget: 60,
     monthlyRent: 2180,
     rentDayOfMonth: 1,
+    lastDecrementDate: null,
 };
+
+// ─── Per-use 打卡记录 ───
+
+export interface TapEvent {
+    id: string;
+    poolId: string;
+    itemId: string;
+    itemName: string; // 冗余存储，加速日历展示
+    poolName: string; // 冗余存储，加速日历展示
+    amount: number;
+    timestamp: string; // ISO datetime
+}
 
 // ─── Store 状态 ───
 
@@ -170,11 +184,14 @@ export interface HorizonState {
     growthEvents: GrowthEvent[];
     expenses: DailyExpense[];
     livingConfig: LivingConfig;
+    tapEvents: TapEvent[];
     salaryDay: number; // 每月几号发工资（1-28）
     lastDistributedDate: string | null; // ISO date，上次发薪日
 }
 
 // ─── 初始模板 ───
+
+export const LIVING_POOL_MARK = "__living__";
 
 export const DEFAULT_POOLS: Omit<FundPool, "id" | "balance">[] = [
     {
@@ -229,5 +246,16 @@ export const DEFAULT_POOLS: Omit<FundPool, "id" | "balance">[] = [
         rule: "remainder",
         priority: 999,
         subItems: [],
+    },
+    {
+        name: "生活费",
+        icon: "🍜",
+        color: "teal",
+        rule: "residual-factor",
+        residualFactor: 0,
+        fixedAmount: 1800,
+        priority: 2,
+        subItems: [],
+        autoFlowTo: undefined,
     },
 ];

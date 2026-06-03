@@ -99,6 +99,9 @@ interface HorizonActions {
     // 生活费
     setLivingConfig: (patch: Partial<LivingConfig>) => void;
     upsertExpense: (date: string, actual: number, note?: string) => void;
+    ensureDailyDecrement: () => void; // 每日自动扣减生活费池
+    linkLivingPool: (poolId: string) => void; // 绑定/切换生活费池
+    calibrateLivingBalance: (newBalance: number) => void; // 校准余额
 }
 
 type HorizonStore = HorizonState & HorizonActions;
@@ -114,13 +117,20 @@ function buildInitialState(): HorizonState {
         monthlyFeeItems: tpl.monthlyFeeItems ?? [],
     }));
 
+    // 自动绑定「生活费」池子
+    const livingPool = pools.find((p) => p.name === "生活费");
+
     return {
         goals: [],
         pools,
         equipments: [],
         growthEvents: [],
         expenses: [],
-        livingConfig: { ...DEFAULT_LIVING_CONFIG },
+        livingConfig: {
+            ...DEFAULT_LIVING_CONFIG,
+            linkedPoolId: livingPool?.id,
+        },
+        tapEvents: [],
         salaryDay: 1,
         lastDistributedDate: null,
     };
@@ -145,11 +155,60 @@ export const useHorizonStore = create<HorizonStore>()(
             // ── 发薪日 ──
 
             doDistributeSalary: (amount: number) => {
-                const results = distributeSalary(amount, get().pools);
+                const now = new Date();
+                const days = new Date(
+                    now.getFullYear(),
+                    now.getMonth() + 1,
+                    0,
+                ).getDate();
+
+                // 生活费池：直接从工资中扣钱入余额（不走管道，避免被 isExpensePool 误杀）
+                let remainingForPools = amount;
+                const s = get();
+                const livingPoolId = s.livingConfig.linkedPoolId;
+                const livingAlloc = s.livingConfig.dailyBudget * days;
+
+                if (livingPoolId) {
+                    remainingForPools = Math.max(0, amount - livingAlloc);
+                }
+
+                // 其余资金池走管道
+                const results = distributeSalary(
+                    remainingForPools,
+                    get().pools.filter((p) => p.id !== livingPoolId),
+                );
+
                 set(
                     produce((state: HorizonStore) => {
-                        state.pools = applyDistribution(state.pools, results);
+                        // 生活费池：直接入余额
+                        if (livingPoolId) {
+                            const lp = state.pools.find(
+                                (p) => p.id === livingPoolId,
+                            );
+                            if (lp) {
+                                lp.balance += livingAlloc;
+                                lp.fixedAmount = livingAlloc;
+                            }
+                            state.livingConfig.lastDecrementDate = null;
+                        }
+
+                        // 其余池子：管道分配
+                        const otherPools = state.pools.filter(
+                            (p) => p.id !== livingPoolId,
+                        );
+                        const updatedOthers = applyDistribution(
+                            otherPools,
+                            results,
+                        );
+                        state.pools = state.pools.map((p) =>
+                            p.id === livingPoolId
+                                ? p
+                                : (updatedOthers.find((u) => u.id === p.id) ??
+                                  p),
+                        );
+
                         state.lastDistributedDate = new Date().toISOString();
+
                         // 自动更新绑定的目标进度
                         for (const goal of state.goals) {
                             const boundPool = state.pools.find(
@@ -337,6 +396,17 @@ export const useHorizonStore = create<HorizonStore>()(
                         if (remaining <= 0) return; // 本月次数已用完
                         item.spent += item.unitPrice;
                         pool.balance -= item.unitPrice;
+
+                        // 记录打卡事件（供日历页面展示）
+                        state.tapEvents.push({
+                            id: v4(),
+                            poolId,
+                            itemId,
+                            itemName: item.name,
+                            poolName: pool.name,
+                            amount: item.unitPrice,
+                            timestamp: new Date().toISOString(),
+                        });
                     }),
                 );
             },
@@ -536,14 +606,7 @@ export const useHorizonStore = create<HorizonStore>()(
                             (e) => e.date === date,
                         );
                         const config = state.livingConfig;
-                        const d = Number.parseInt(
-                            date.split("-")[2] ?? "1",
-                            10,
-                        );
-                        const isRentDay = d === config.rentDayOfMonth;
-                        const budget = isRentDay
-                            ? config.monthlyRent + config.dailyBudget
-                            : config.dailyBudget;
+                        const budget = config.dailyBudget;
 
                         if (idx >= 0) {
                             state.expenses[idx].actual = actual;
@@ -563,6 +626,130 @@ export const useHorizonStore = create<HorizonStore>()(
                     }),
                 );
             },
+
+            // ── 每日自动扣减生活费池 ──
+            ensureDailyDecrement: () => {
+                const { livingConfig, pools } = get();
+                const poolId = livingConfig.linkedPoolId;
+                if (!poolId) return;
+                const pool = pools.find((p) => p.id === poolId);
+                if (!pool || pool.balance <= 0) return;
+
+                const today = new Date();
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+                const lastDate = livingConfig.lastDecrementDate;
+
+                // 今天已经扣过
+                if (lastDate === todayStr) return;
+
+                // 计算需要扣几天
+                let daysToDecrement = 1;
+                if (lastDate) {
+                    const last = new Date(lastDate);
+                    const diffMs = today.getTime() - last.getTime();
+                    daysToDecrement = Math.min(
+                        Math.floor(diffMs / (1000 * 60 * 60 * 24)),
+                        31, // 最多补扣一个月
+                    );
+                }
+
+                const daily = livingConfig.dailyBudget;
+                const totalDeduct = Math.min(
+                    daily * daysToDecrement,
+                    pool.balance,
+                );
+
+                if (totalDeduct <= 0) return;
+
+                set(
+                    produce((state: HorizonStore) => {
+                        const p = state.pools.find((p2) => p2.id === poolId);
+                        if (!p) return;
+                        p.balance -= totalDeduct;
+                        state.livingConfig.lastDecrementDate = todayStr;
+
+                        // 为每一天创建一条自动记录
+                        const startDate = lastDate
+                            ? new Date(lastDate)
+                            : new Date(today);
+                        for (let i = 1; i <= daysToDecrement; i++) {
+                            const d = new Date(startDate);
+                            d.setDate(d.getDate() + i);
+                            const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                            // 避免重复
+                            if (state.expenses.some((e) => e.date === ds))
+                                continue;
+                            state.expenses.push({
+                                id: v4(),
+                                date: ds,
+                                budget: daily,
+                                actual: daily,
+                                isManual: false,
+                            });
+                        }
+                    }),
+                );
+            },
+
+            // ── 绑定生活费池 ──
+            linkLivingPool: (poolId) => {
+                set(
+                    produce((state: HorizonStore) => {
+                        state.livingConfig.linkedPoolId = poolId;
+                    }),
+                );
+            },
+
+            // ── 校准生活费余额 ──
+            calibrateLivingBalance: (newBalance) => {
+                const { livingConfig, pools } = get();
+                const poolId = livingConfig.linkedPoolId;
+                if (!poolId) return;
+                const pool = pools.find((p) => p.id === poolId);
+                if (!pool) return;
+
+                const gap = pool.balance - newBalance;
+                const today = new Date();
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+                const daily = livingConfig.dailyBudget;
+
+                set(
+                    produce((state: HorizonStore) => {
+                        const p = state.pools.find((p2) => p2.id === poolId);
+                        if (!p) return;
+                        p.balance = newBalance;
+
+                        // 差额记入今日
+                        const todayActual = daily + gap;
+                        const idx = state.expenses.findIndex(
+                            (e) => e.date === todayStr,
+                        );
+                        const note =
+                            gap > 0
+                                ? `校准：比估算多花 ¥${gap.toLocaleString()}`
+                                : gap < 0
+                                  ? `校准：比估算少花 ¥${Math.abs(gap).toLocaleString()}`
+                                  : undefined;
+                        if (idx >= 0) {
+                            state.expenses[idx].actual = Math.max(
+                                0,
+                                todayActual,
+                            );
+                            state.expenses[idx].isManual = true;
+                            if (note) state.expenses[idx].note = note;
+                        } else {
+                            state.expenses.push({
+                                id: v4(),
+                                date: todayStr,
+                                budget: daily,
+                                actual: Math.max(0, todayActual),
+                                isManual: true,
+                                note,
+                            });
+                        }
+                    }),
+                );
+            },
         }),
         {
             name: "horizon-store",
@@ -574,6 +761,7 @@ export const useHorizonStore = create<HorizonStore>()(
                 growthEvents: state.growthEvents,
                 expenses: state.expenses,
                 livingConfig: state.livingConfig,
+                tapEvents: state.tapEvents,
                 salaryDay: state.salaryDay,
                 lastDistributedDate: state.lastDistributedDate,
             }),

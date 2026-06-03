@@ -8,7 +8,7 @@ import { lazyWithReload } from "./utils/lazy";
 const Wizard = lazyWithReload(() => import("@/pages/wizard"));
 const Progress = lazyWithReload(() => import("@/pages/progress"));
 const PoolDetail = lazyWithReload(() => import("@/pages/pool-detail"));
-const Living = lazyWithReload(() => import("@/pages/living"));
+const Calendar = lazyWithReload(() => import("@/pages/calendar"));
 
 function RootRoute() {
     return (
@@ -40,10 +40,10 @@ function RootRoute() {
                     }
                 />
                 <Route
-                    path="/living"
+                    path="/calendar"
                     element={
                         <Suspense fallback={<LoadingSkeleton />}>
-                            <Living />
+                            <Calendar />
                         </Suspense>
                     }
                 />

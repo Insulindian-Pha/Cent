@@ -1,30 +1,35 @@
 // 生活费：每日预算 + 月度统计计算
 
-import type { DailyExpense, LivingConfig } from "./types";
+import type { DailyExpense, LivingConfig, TapEvent } from "./types";
 
 /** 当月天数 */
 export function daysInMonth(year: number, month: number): number {
     return new Date(year, month, 0).getDate();
 }
 
-/** 月度总预算 = 日预算 × 天数 + 房租 */
+/** 月度总预算 = 日预算 × 天数（房租由资金池管理，不计入生活费） */
 export function getMonthBudget(
     config: LivingConfig,
     year: number,
     month: number,
 ): number {
-    return config.dailyBudget * daysInMonth(year, month) + config.monthlyRent;
+    return config.dailyBudget * daysInMonth(year, month);
 }
 
-/** 月度实际总花费 */
+/** 月度实际总花费（只计已过去的天数） */
 export function getMonthSpent(
     entries: DailyExpense[],
     year: number,
     month: number,
 ): number {
     const prefix = `${year}-${String(month).padStart(2, "0")}`;
+    const limit = elapsedDays(year, month); // 当天为止，未来不计
     return entries
-        .filter((e) => e.date.startsWith(prefix))
+        .filter((e) => {
+            if (!e.date.startsWith(prefix)) return false;
+            const d = Number.parseInt(e.date.split("-")[2] ?? "1", 10);
+            return d <= limit;
+        })
         .reduce((sum, e) => {
             const actual = e.isManual ? e.actual : e.budget;
             return sum + actual;
@@ -124,13 +129,10 @@ export function generateMonthEntries(
                 budget: config.dailyBudget, // 始终使用最新配置的预算
             });
         } else {
-            const isRentDay = d === config.rentDayOfMonth;
             result.push({
                 id: `auto-${date}`,
                 date,
-                budget: isRentDay
-                    ? config.monthlyRent + config.dailyBudget
-                    : config.dailyBudget,
+                budget: config.dailyBudget,
                 actual: 0,
                 isManual: false,
             });
@@ -144,4 +146,77 @@ export function generateMonthEntries(
 export function todayStr(): string {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+// ─── 日历日记聚合 ───
+
+/** 某天的完整花销日记 */
+export interface DayJournalEntry {
+    date: string; // YYYY-MM-DD
+    /** 当日生活费自动估算 */
+    livingBudget: number;
+    /** 生活费实际（手动校准过 = actual，否则 = budget） */
+    livingActual: number;
+    isLivingManual: boolean;
+    livingNote?: string;
+    /** 当天发生的 per-use 打卡 */
+    taps: TapEvent[];
+    /** 打卡合计金额 */
+    tapTotal: number;
+    /** 当日总计 = livingActual + tapTotal */
+    grandTotal: number;
+}
+
+/**
+ * 获取某月的完整日记（每天一条）
+ * 聚合来源：生活费估算（generateMonthEntries） + per-use 打卡事件
+ */
+export function getDayJournal(
+    config: LivingConfig,
+    expenses: DailyExpense[],
+    tapEvents: TapEvent[],
+    year: number,
+    month: number,
+): DayJournalEntry[] {
+    const monthEntries = generateMonthEntries(config, year, month, expenses);
+    const prefix = `${year}-${String(month).padStart(2, "0")}`;
+
+    // 按日期分组 tapEvents
+    const tapsByDate = new Map<string, TapEvent[]>();
+    for (const tap of tapEvents) {
+        const date = tap.timestamp.slice(0, 10); // "YYYY-MM-DD"
+        if (!date.startsWith(prefix)) continue;
+        const list = tapsByDate.get(date) ?? [];
+        list.push(tap);
+        tapsByDate.set(date, list);
+    }
+
+    return monthEntries.map((entry) => {
+        const taps = tapsByDate.get(entry.date) ?? [];
+        const tapTotal = taps.reduce((s, t) => s + t.amount, 0);
+        const livingActual = entry.isManual ? entry.actual : entry.budget;
+        return {
+            date: entry.date,
+            livingBudget: entry.budget,
+            livingActual,
+            isLivingManual: entry.isManual,
+            livingNote: entry.note,
+            taps,
+            tapTotal,
+            grandTotal: livingActual + tapTotal,
+        };
+    });
+}
+
+/** 获取某一日的日记（不存在则返回 undefined） */
+export function getDayJournalForDate(
+    config: LivingConfig,
+    expenses: DailyExpense[],
+    tapEvents: TapEvent[],
+    dateStr: string,
+): DayJournalEntry | undefined {
+    const [y, m] = dateStr.split("-").map(Number);
+    if (!y || !m) return undefined;
+    const journal = getDayJournal(config, expenses, tapEvents, y, m);
+    return journal.find((j) => j.date === dateStr);
 }
