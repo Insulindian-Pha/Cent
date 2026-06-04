@@ -30,10 +30,7 @@ export function getMonthSpent(
             const d = Number.parseInt(e.date.split("-")[2] ?? "1", 10);
             return d <= limit;
         })
-        .reduce((sum, e) => {
-            const actual = e.isManual ? e.actual : e.budget;
-            return sum + actual;
-        }, 0);
+        .reduce((sum, e) => sum + e.budget, 0);
 }
 
 /** 本月到今天为止已过的天数 */
@@ -67,9 +64,6 @@ export interface MonthStats {
     monthBudget: number;
     monthSpent: number;
     dailyAvg: number;
-    overDays: number; // 超预算天数
-    underDays: number; // 低于预算天数
-    manualDays: number; // 手动校准天数
     balance: number; // 结余（正）或超支（负）
     executionRate: number; // 预算执行率 0-1
 }
@@ -82,28 +76,12 @@ export function getMonthStats(
 ): MonthStats {
     const monthBudget = getMonthBudget(config, year, month);
     const monthSpent = getMonthSpent(entries, year, month);
-    const prefix = `${year}-${String(month).padStart(2, "0")}`;
-    const monthEntries = entries.filter((e) => e.date.startsWith(prefix));
     const elapsed = elapsedDays(year, month);
-
-    let overDays = 0;
-    let underDays = 0;
-    let manualDays = 0;
-
-    for (const e of monthEntries) {
-        const actual = e.isManual ? e.actual : e.budget;
-        if (e.isManual) manualDays++;
-        if (actual > e.budget) overDays++;
-        else if (actual < e.budget) underDays++;
-    }
 
     return {
         monthBudget,
         monthSpent,
         dailyAvg: elapsed > 0 ? Math.round(monthSpent / elapsed) : 0,
-        overDays,
-        underDays,
-        manualDays,
         balance: monthBudget - monthSpent,
         executionRate: monthBudget > 0 ? monthSpent / monthBudget : 0,
     };
@@ -133,8 +111,7 @@ export function generateMonthEntries(
                 id: `auto-${date}`,
                 date,
                 budget: config.dailyBudget,
-                actual: 0,
-                isManual: false,
+                actual: config.dailyBudget,
             });
         }
     }
@@ -153,12 +130,10 @@ export function todayStr(): string {
 /** 某天的完整花销日记 */
 export interface DayJournalEntry {
     date: string; // YYYY-MM-DD
-    /** 当日生活费自动估算 */
+    /** 当日生活费预算（每日均值） */
     livingBudget: number;
-    /** 生活费实际（手动校准过 = actual，否则 = budget） */
+    /** 当日生活费实际（校准后可能 ≠ budget） */
     livingActual: number;
-    isLivingManual: boolean;
-    livingNote?: string;
     /** 当天发生的 per-use 打卡 */
     taps: TapEvent[];
     /** 打卡合计金额 */
@@ -194,13 +169,11 @@ export function getDayJournal(
     return monthEntries.map((entry) => {
         const taps = tapsByDate.get(entry.date) ?? [];
         const tapTotal = taps.reduce((s, t) => s + t.amount, 0);
-        const livingActual = entry.isManual ? entry.actual : entry.budget;
+        const livingActual = entry.actual > 0 ? entry.actual : entry.budget;
         return {
             date: entry.date,
             livingBudget: entry.budget,
             livingActual,
-            isLivingManual: entry.isManual,
-            livingNote: entry.note,
             taps,
             tapTotal,
             grandTotal: livingActual + tapTotal,

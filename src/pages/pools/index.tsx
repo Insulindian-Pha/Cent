@@ -17,7 +17,6 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-    CalendarDays,
     GripVertical,
     Image,
     List,
@@ -115,6 +114,21 @@ function PoolCard({
     isLiving?: boolean;
     livingDaily?: number;
 }) {
+    const calibrateLivingBalance = useHorizonStore(
+        (s) => s.calibrateLivingBalance,
+    );
+    const [calOpen, setCalOpen] = useState(false);
+    const [calVal, setCalVal] = useState("");
+
+    const handleQuickCal = () => {
+        const v = Number.parseFloat(calVal);
+        if (Number.isNaN(v) || v < 0) return;
+        calibrateLivingBalance(v);
+        setCalVal("");
+        setCalOpen(false);
+        toast("已校准");
+    };
+
     const {
         attributes,
         listeners,
@@ -179,8 +193,60 @@ function PoolCard({
                         </div>
 
                         <div className="text-right shrink-0 flex items-center gap-2">
+                            {isLiving && (
+                                <div className="relative shrink-0">
+                                    {!calOpen ? (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setCalOpen(true);
+                                            }}
+                                            className="text-[10px] text-muted-foreground hover:text-primary transition-colors px-1 py-0.5 rounded hover:bg-muted"
+                                            title="快速校准余额"
+                                        >
+                                            校准
+                                        </button>
+                                    ) : (
+                                        <div className="flex items-center gap-1">
+                                            <Input
+                                                type="number"
+                                                value={calVal}
+                                                onChange={(e) =>
+                                                    setCalVal(e.target.value)
+                                                }
+                                                onKeyDown={(e) => {
+                                                    e.stopPropagation();
+                                                    if (e.key === "Enter")
+                                                        handleQuickCal();
+                                                    if (e.key === "Escape") {
+                                                        setCalOpen(false);
+                                                        setCalVal("");
+                                                    }
+                                                }}
+                                                placeholder="余额"
+                                                className="h-7 w-20 text-xs text-center"
+                                                autoFocus
+                                                onClick={(e) =>
+                                                    e.stopPropagation()
+                                                }
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleQuickCal();
+                                                }}
+                                                className="text-[10px] text-primary font-medium hover:underline shrink-0"
+                                            >
+                                                确定
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             {isLiving ? (
-                                // 生活费池：迷你环形进度条
+                                // 生活费池：迷你环形进度条（已花费比例，与详情页 BatteryRing 一致）
                                 (() => {
                                     const sv = 40;
                                     const sw = 4;
@@ -189,15 +255,18 @@ function PoolCard({
                                     const alloc =
                                         pool.fixedAmount ?? pool.balance;
                                     const hasBalance = pool.balance > 0;
-                                    const s = hasBalance
+                                    const spent = hasBalance
                                         ? Math.max(0, alloc - pool.balance)
                                         : 0;
                                     const pct =
                                         hasBalance && alloc > 0
-                                            ? (s / alloc) * 100
+                                            ? (spent / alloc) * 100
                                             : 0;
+                                    // 最少显示 3% 的弧段，避免 0% 花费时环完全不可见
+                                    const visiblePct = Math.max(pct, 3);
                                     const so =
-                                        sc - (Math.min(pct, 100) / 100) * sc;
+                                        sc -
+                                        (Math.min(visiblePct, 100) / 100) * sc;
                                     const scolor = hasBalance
                                         ? pct > 90
                                             ? "stroke-red-500"
@@ -700,39 +769,33 @@ export default function PoolsPage() {
     const ensureDailyDecrement = useHorizonStore((s) => s.ensureDailyDecrement);
     const didRebalance = useRef(false);
 
-    // 打开首页时补平历史数据 + 每日生活费扣减
+    // 初始化：等待 IndexedDB 数据恢复后再执行 rebalance + 每日扣减
     useEffect(() => {
-        if (didRebalance.current) return;
-        didRebalance.current = true;
-        rebalancePools();
-        ensureDailyDecrement();
+        const init = () => {
+            if (didRebalance.current) return;
+            didRebalance.current = true;
+            rebalancePools();
+            ensureDailyDecrement();
+        };
 
-        // 旧数据兼容：如果生活费池子不存在，创建一个
-        const st = useHorizonStore.getState();
-        const lpId = st.livingConfig.linkedPoolId;
-        if (!lpId || !st.pools.some((p) => p.id === lpId)) {
-            const days = new Date(
-                new Date().getFullYear(),
-                new Date().getMonth() + 1,
-                0,
-            ).getDate();
-            st.addPool({
-                name: "生活费",
-                icon: "🍜",
-                color: "teal",
-                rule: "residual-factor",
-                residualFactor: 0,
-                fixedAmount: st.livingConfig.dailyBudget * days,
-                priority: 2,
-                subItems: [],
-            });
-            // addPool 之后 pool 已同步写入，找名字匹配的
-            const newPool = useHorizonStore
-                .getState()
-                .pools.find((p) => p.name === "生活费");
-            if (newPool) {
-                st.linkLivingPool(newPool.id);
-            }
+        // 如果 hydration 已完成（后续导航返回此页），立即执行
+        if (
+            (
+                useHorizonStore as unknown as {
+                    persist: { hasHydrated: () => boolean };
+                }
+            ).persist.hasHydrated()
+        ) {
+            init();
+        } else {
+            const unsub = (
+                useHorizonStore as unknown as {
+                    persist: {
+                        onFinishHydration: (cb: () => void) => () => void;
+                    };
+                }
+            ).persist.onFinishHydration(() => init());
+            return unsub;
         }
     }, [rebalancePools, ensureDailyDecrement]);
 
@@ -793,14 +856,6 @@ export default function PoolsPage() {
             <header className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
                 <h1 className="text-xl font-bold">Horizon</h1>
                 <div className="flex items-center gap-2">
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => navigate("/calendar")}
-                    >
-                        <CalendarDays className="size-4 mr-1" />
-                        日历
-                    </Button>
                     <Button
                         size="sm"
                         variant="outline"

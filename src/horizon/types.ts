@@ -143,9 +143,7 @@ export interface DailyExpense {
     id: string;
     date: string; // YYYY-MM-DD
     budget: number; // 当日预算
-    actual: number; // 实际花费（0 = 未手动输入，视为等于预算）
-    isManual: boolean; // 是否手动校准过
-    note?: string;
+    actual: number; // 实际花费（= budget，系统自动估算）
 }
 
 export interface LivingConfig {

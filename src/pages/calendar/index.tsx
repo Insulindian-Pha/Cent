@@ -3,7 +3,7 @@
 // 下方：日历每日花销记录（生活费估算 + per-use 打卡 + 手动备注）
 
 import dayjs from "dayjs";
-import { ChevronLeft, ChevronRight, Pencil, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import {
     AnimatePresence,
     motion,
@@ -134,6 +134,7 @@ function LivingControls({
     dailyBudget,
     autoRemaining,
     daysLeft,
+    suggestedDaily,
     todayDate,
     onDailyBudgetChange,
     onCalibrate,
@@ -141,6 +142,7 @@ function LivingControls({
     dailyBudget: number;
     autoRemaining: number;
     daysLeft: number;
+    suggestedDaily: number;
     todayDate: string;
     onDailyBudgetChange: (v: number) => void;
     onCalibrate: (newRemaining: number) => void;
@@ -149,9 +151,6 @@ function LivingControls({
     const [showCal, setShowCal] = useState(false);
     const [showBudgetInput, setShowBudgetInput] = useState(false);
     const [budgetInput, setBudgetInput] = useState("");
-
-    const effectiveDaily =
-        daysLeft > 0 ? Math.round(autoRemaining / daysLeft) : 0;
 
     const handleCalibrate = () => {
         const userRemaining = Number.parseFloat(calValue);
@@ -166,9 +165,9 @@ function LivingControls({
             {/* 紧凑信息行 */}
             <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
-                    每 {dailyBudget.toLocaleString()}/天
+                    每 ¥{dailyBudget.toLocaleString()}/天
                     {daysLeft > 0 &&
-                        ` · 剩余约 ¥${effectiveDaily.toLocaleString()}/天`}
+                        ` · 往后约 ¥${suggestedDaily.toLocaleString()}/天`}
                 </span>
                 <span className="flex items-center gap-2">
                     {!showBudgetInput ? (
@@ -345,23 +344,7 @@ function DayDetailModal({
     entry: DayJournalEntry;
     onClose: () => void;
 }) {
-    const upsertExpense = useHorizonStore((s) => s.upsertExpense);
-    const [editing, setEditing] = useState(false);
-    const [actualStr, setActualStr] = useState(
-        entry.isLivingManual ? String(entry.livingActual) : "",
-    );
-    const [note, setNote] = useState(entry.livingNote ?? "");
-
-    const handleSaveCalibration = () => {
-        const num = Number.parseFloat(actualStr);
-        if (Number.isNaN(num) || num < 0) return;
-        upsertExpense(entry.date, num, note || undefined);
-        toast("已校准");
-        setEditing(false);
-    };
-
     const hasTaps = entry.taps.length > 0;
-    const showEdit = !editing;
     const d = dayjs(entry.date);
 
     return (
@@ -383,76 +366,38 @@ function DayDetailModal({
 
                 {/* 生活费行 */}
                 <div className="rounded-xl border border-border p-3 mb-3">
-                    {showEdit ? (
-                        <div>
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium">
-                                    生活费
-                                </span>
-                                <span className="text-sm tabular-nums">
-                                    ¥{entry.livingActual.toLocaleString()}
-                                </span>
-                            </div>
-                            {entry.isLivingManual && entry.livingNote && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    {entry.livingNote}
-                                </p>
-                            )}
-                            <div className="flex items-center gap-2 mt-2">
-                                {entry.isLivingManual ? (
-                                    <span className="text-[10px] text-muted-foreground">
-                                        预算 ¥
-                                        {entry.livingBudget.toLocaleString()}
-                                    </span>
-                                ) : (
-                                    <span className="text-[10px] text-muted-foreground">
-                                        此为估算值
-                                    </span>
-                                )}
-                                <button
-                                    type="button"
-                                    onClick={() => setEditing(true)}
-                                    className="ml-auto text-xs text-primary hover:underline flex items-center gap-1"
-                                >
-                                    <Pencil className="size-3" />
-                                    {entry.isLivingManual ? "修改" : "校准"}
-                                </button>
-                            </div>
+                    <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">生活费</span>
+                        <span className="text-sm tabular-nums">
+                            ¥{entry.livingActual.toLocaleString()}
+                        </span>
+                    </div>
+                    {entry.livingActual !== entry.livingBudget ? (
+                        <div className="flex items-center gap-2 mt-2">
+                            <span className="text-[10px] text-muted-foreground">
+                                预算 ¥{entry.livingBudget.toLocaleString()}
+                            </span>
+                            <span
+                                className={`text-[10px] font-mono tabular-nums ${
+                                    entry.livingActual > entry.livingBudget
+                                        ? "text-red-500"
+                                        : "text-emerald-500"
+                                }`}
+                            >
+                                {entry.livingActual > entry.livingBudget
+                                    ? "+"
+                                    : ""}
+                                ¥
+                                {Math.abs(
+                                    entry.livingActual - entry.livingBudget,
+                                ).toLocaleString()}
+                            </span>
                         </div>
                     ) : (
-                        <div className="space-y-2">
-                            <Label className="text-sm">
-                                实际花费 ¥（留空=用估算）
-                            </Label>
-                            <Input
-                                type="number"
-                                placeholder={`¥${entry.livingBudget.toLocaleString()}`}
-                                value={actualStr}
-                                onChange={(e) => setActualStr(e.target.value)}
-                                autoFocus
-                            />
-                            <Input
-                                placeholder="备注（可选）"
-                                value={note}
-                                onChange={(e) => setNote(e.target.value)}
-                            />
-                            <div className="flex gap-2 pt-1">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="flex-1"
-                                    onClick={() => setEditing(false)}
-                                >
-                                    取消
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    className="flex-1"
-                                    onClick={handleSaveCalibration}
-                                >
-                                    保存
-                                </Button>
-                            </div>
+                        <div className="flex items-center gap-2 mt-2">
+                            <span className="text-[10px] text-muted-foreground">
+                                此为每日预估
+                            </span>
                         </div>
                     )}
                 </div>
@@ -490,7 +435,7 @@ function DayDetailModal({
                     </div>
                 )}
 
-                {!hasTaps && !entry.isLivingManual && (
+                {!hasTaps && (
                     <div className="text-center py-4 text-sm text-muted-foreground">
                         当日无额外花销记录
                     </div>
@@ -575,31 +520,25 @@ function JournalGrid({
                     const isToday = dateStr === today.format("YYYY-MM-DD");
                     const isFuture = dateStr > today.format("YYYY-MM-DD");
                     const hasTaps = entry.taps.length > 0;
-                    // 生活费差额 = 实际 - 预算
-                    const livingDiff = entry.livingActual - entry.livingBudget;
-                    const isOver = livingDiff > 0;
-                    const isUnder = livingDiff < 0;
-                    const hasCalibration = entry.isLivingManual;
                     const showLiving = !isFuture && entry.livingBudget > 0;
+                    const livingDiff = entry.livingActual - entry.livingBudget;
+                    const hasAdjustment = livingDiff !== 0;
+                    const isOver = livingDiff > 0;
 
-                    // 颜色：超支红 / 节省绿 / 持平灰
+                    // 颜色：校准超支红 / 节省绿 / 打卡突出 / 中性
                     let bgClass = "bg-muted/30 hover:bg-muted/50";
                     let amountClass = "text-muted-foreground";
-                    if (showLiving) {
-                        if (isOver) {
-                            bgClass =
-                                "bg-red-500/10 hover:bg-red-500/20 border border-red-500/20";
-                            amountClass = "text-red-600 dark:text-red-400";
-                        } else if (isUnder) {
-                            bgClass =
-                                "bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20";
-                            amountClass =
-                                "text-emerald-600 dark:text-emerald-400";
-                        } else {
-                            bgClass =
-                                "bg-card hover:bg-muted/60 border border-border/50";
-                            amountClass = "text-foreground";
-                        }
+                    if (hasAdjustment) {
+                        bgClass = isOver
+                            ? "bg-red-500/10 hover:bg-red-500/20 border border-red-500/20"
+                            : "bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20";
+                        amountClass = isOver
+                            ? "text-red-600 dark:text-red-400"
+                            : "text-emerald-600 dark:text-emerald-400";
+                    } else if (hasTaps) {
+                        bgClass =
+                            "bg-card hover:bg-muted/60 border border-border/50";
+                        amountClass = "text-foreground";
                     }
 
                     return (
@@ -635,8 +574,8 @@ function JournalGrid({
                                 </div>
                             )}
 
-                            {/* 差额标记 */}
-                            {showLiving && livingDiff !== 0 && (
+                            {/* 差额标记（校准日） */}
+                            {hasAdjustment && (
                                 <div
                                     className={`text-[10px] font-mono tabular-nums mt-0.5 ${
                                         isOver
@@ -644,15 +583,8 @@ function JournalGrid({
                                             : "text-emerald-500"
                                     }`}
                                 >
-                                    {isOver ? "+" : "-"}¥
+                                    {isOver ? "+" : ""}¥
                                     {Math.abs(livingDiff).toLocaleString()}
-                                </div>
-                            )}
-
-                            {/* 校准过标记 */}
-                            {hasCalibration && (
-                                <div className="absolute top-1 right-1 text-[8px] text-muted-foreground/60">
-                                    ✎
                                 </div>
                             )}
 
@@ -678,22 +610,39 @@ export default function CalendarPage() {
     const setLivingConfig = useHorizonStore((s) => s.setLivingConfig);
     const expenses = useHorizonStore((s) => s.expenses);
     const tapEvents = useHorizonStore((s) => s.tapEvents);
-    const upsertExpense = useHorizonStore((s) => s.upsertExpense);
     const pools = useHorizonStore((s) => s.pools);
     const calibrateLivingBalance = useHorizonStore(
         (s) => s.calibrateLivingBalance,
     );
-    const ensureDailyDecrement = useHorizonStore((s) => s.ensureDailyDecrement);
-
     const today = dayjs();
     const [viewYear, setViewYear] = useState(today.year());
     const [viewMonth, setViewMonth] = useState(today.month() + 1);
     const [detailDate, setDetailDate] = useState<string | null>(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
 
-    // 进入日历页时检查每日扣减
+    const ensureDailyDecrement = useHorizonStore((s) => s.ensureDailyDecrement);
+
+    // hydration 完成后再检查每日扣减
     useEffect(() => {
-        ensureDailyDecrement();
+        const doDecrement = () => ensureDailyDecrement();
+        if (
+            (
+                useHorizonStore as unknown as {
+                    persist: { hasHydrated: () => boolean };
+                }
+            ).persist.hasHydrated()
+        ) {
+            doDecrement();
+        } else {
+            const unsub = (
+                useHorizonStore as unknown as {
+                    persist: {
+                        onFinishHydration: (cb: () => void) => () => void;
+                    };
+                }
+            ).persist.onFinishHydration(() => doDecrement());
+            return unsub;
+        }
     }, [ensureDailyDecrement]);
 
     // ── 生活费数据 ──
@@ -722,6 +671,9 @@ export default function CalendarPage() {
     const elapsed = elapsedDays(viewYear, viewMonth);
     const totalDays = daysInMonth(viewYear, viewMonth);
     const daysLeft = Math.max(0, totalDays - elapsed);
+    // 根据实际剩余余额 / 剩余天数 = 往后每日参考预算
+    const suggestedDaily =
+        daysLeft > 0 ? Math.round(remaining / daysLeft) : config.dailyBudget;
 
     // ── 日记数据 ──
     const monthJournal = useMemo(
@@ -890,6 +842,7 @@ export default function CalendarPage() {
                                 dailyBudget={config.dailyBudget}
                                 autoRemaining={remaining}
                                 daysLeft={daysLeft}
+                                suggestedDaily={suggestedDaily}
                                 todayDate={today.format("YYYY-MM-DD")}
                                 onDailyBudgetChange={(v) =>
                                     setLivingConfig({ dailyBudget: v })
