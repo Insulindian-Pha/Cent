@@ -647,7 +647,9 @@ export default function CalendarPage() {
 
     // ── 生活费数据 ──
     const livingPool = pools.find((p) => p.id === config.linkedPoolId);
-    const allocated = livingPool?.fixedAmount ?? 0;
+    const allocated = livingPool
+        ? config.dailyBudget * daysInMonth(viewYear, viewMonth)
+        : 0;
     const poolBalance = livingPool?.balance ?? 0;
 
     // 有池子时：余额即剩余。没池子时（旧数据）：用旧计算方式 fallback

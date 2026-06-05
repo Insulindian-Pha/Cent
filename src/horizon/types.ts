@@ -2,9 +2,8 @@
 
 /** 资金池分配规则 */
 export type AllocationRule =
-    | "fixed" // 固定金额
     | "percent" // 按比例
-    | "monthly-list" // 月费清单
+    | "monthly-list" // 月费清单（固定开销通过 subItems 中 tracking=fixed-monthly 定义）
     | "residual-factor" // 剩余×系数
     | "remainder"; // 兜底
 
@@ -54,14 +53,14 @@ export interface FundPool {
     rule: AllocationRule;
 
     // 分配参数（按 rule 取不同字段）
-    fixedAmount?: number; // rule=fixed 时用
     percentRate?: number; // rule=percent 时用（0-1）
-    monthlyFeeItems?: { name: string; amount: number }[]; // rule=monthly-list 时用
     residualFactor?: number; // rule=residual-factor 时用（0-1）
 
     priority: number; // 分配顺序（越小越先分）
     balance: number; // 当前余额（可动用资金）
-    /** 固定金额/月费清单：本期已从总资金中扣走的金额（不计入 balance） */
+    /** 扣款型池子：资金经过时不入余额，只记 quotaDeducted（如房租）。不设则为累积型 */
+    isExpense?: boolean;
+    /** 扣款型：本期已扣金额 */
     quotaDeducted?: number;
 
     subItems: PoolSubItem[]; // 池子内部的子项
@@ -193,13 +192,22 @@ export const LIVING_POOL_MARK = "__living__";
 
 export const DEFAULT_POOLS: Omit<FundPool, "id" | "balance">[] = [
     {
-        name: "固定开销",
+        name: "固定月费",
         icon: "🏠",
         color: "slate",
-        rule: "fixed",
-        fixedAmount: 2180,
+        rule: "monthly-list",
+        isExpense: true,
         priority: 1,
-        subItems: [],
+        subItems: [
+            {
+                id: "tpl-rent",
+                name: "房租",
+                icon: "🏠",
+                budget: 2180,
+                tracking: "fixed-monthly",
+                spent: 0,
+            },
+        ],
     },
     {
         name: "应急金",
@@ -211,22 +219,21 @@ export const DEFAULT_POOLS: Omit<FundPool, "id" | "balance">[] = [
         subItems: [],
     },
     {
-        name: "固定月费",
-        icon: "📋",
-        color: "violet",
-        rule: "monthly-list",
-        monthlyFeeItems: [],
-        priority: 3,
-        subItems: [],
-    },
-    {
         name: "梦想基金",
         icon: "🌅",
         color: "amber",
-        rule: "fixed",
-        fixedAmount: 2000,
+        rule: "monthly-list",
         priority: 4,
-        subItems: [],
+        subItems: [
+            {
+                id: "tpl-dream",
+                name: "梦想存款",
+                icon: "🌅",
+                budget: 2000,
+                tracking: "fixed-monthly",
+                spent: 0,
+            },
+        ],
     },
     {
         name: "爱好基金",
@@ -251,7 +258,6 @@ export const DEFAULT_POOLS: Omit<FundPool, "id" | "balance">[] = [
         color: "teal",
         rule: "residual-factor",
         residualFactor: 0,
-        fixedAmount: 1800,
         priority: 2,
         subItems: [],
         autoFlowTo: undefined,

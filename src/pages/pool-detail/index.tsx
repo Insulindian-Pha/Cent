@@ -62,7 +62,6 @@ import { useHorizonStore } from "@/store/horizon";
 // ─── 显示名映射 ───
 
 const RULE_LABELS: Record<string, string> = {
-    fixed: "固定金额",
     percent: "按比例",
     "monthly-list": "月费清单",
     "residual-factor": "剩余比例",
@@ -1016,8 +1015,8 @@ export default function PoolDetailPage() {
                     </div>
                     <div className="text-right text-xs text-muted-foreground">
                         <p>{RULE_LABELS[pool.rule] ?? pool.rule}</p>
-                        {pool.rule === "fixed" && pool.fixedAmount && (
-                            <p>每月 ¥{pool.fixedAmount.toLocaleString()}</p>
+                        {pool.rule === "monthly-list" && (
+                            <p>每月 ¥{poolQuota(pool).toLocaleString()}</p>
                         )}
                         {pool.rule === "percent" && pool.percentRate && (
                             <p>收入 × {Math.round(pool.percentRate * 100)}%</p>
@@ -1218,6 +1217,106 @@ export default function PoolDetailPage() {
                     </div>
                 </div>
             </div>
+
+            {/* ── 调整分配 ── */}
+            {pool.rule !== "remainder" && (
+                <div className="px-4 pb-3 shrink-0">
+                    <div className="rounded-2xl bg-card border border-border p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                            <Zap className="size-5 text-muted-foreground" />
+                            <span className="text-sm font-medium text-muted-foreground">
+                                调整分配
+                            </span>
+                            <span className="text-xs px-1.5 py-0.5 rounded-md bg-secondary text-secondary-foreground ml-auto">
+                                {RULE_LABELS[pool.rule]}
+                            </span>
+                        </div>
+
+                        {pool.rule === "percent" && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground shrink-0">
+                                    收入 ×
+                                </span>
+                                <Input
+                                    type="number"
+                                    value={
+                                        pool.percentRate !== undefined
+                                            ? Math.round(pool.percentRate * 100)
+                                            : ""
+                                    }
+                                    onChange={(e) => {
+                                        const v = Number.parseFloat(
+                                            e.target.value,
+                                        );
+                                        if (Number.isNaN(v)) return;
+                                        updatePool(pool.id, {
+                                            percentRate: v / 100,
+                                        });
+                                    }}
+                                    className="h-7 w-16 text-center text-xs"
+                                />
+                                <span className="text-xs text-muted-foreground shrink-0">
+                                    %
+                                </span>
+                            </div>
+                        )}
+
+                        {pool.rule === "residual-factor" && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground shrink-0">
+                                    剩余 ×
+                                </span>
+                                <Input
+                                    type="number"
+                                    value={
+                                        pool.residualFactor !== undefined
+                                            ? Math.round(
+                                                  pool.residualFactor * 100,
+                                              )
+                                            : ""
+                                    }
+                                    onChange={(e) => {
+                                        const v = Number.parseFloat(
+                                            e.target.value,
+                                        );
+                                        if (Number.isNaN(v)) return;
+                                        updatePool(pool.id, {
+                                            residualFactor: v / 100,
+                                        });
+                                    }}
+                                    className="h-7 w-16 text-center text-xs"
+                                />
+                                <span className="text-xs text-muted-foreground shrink-0">
+                                    %
+                                </span>
+                            </div>
+                        )}
+
+                        {pool.rule === "monthly-list" && (
+                            <div className="flex items-center justify-between pt-1 border-t border-border/50">
+                                <span className="text-xs text-muted-foreground">
+                                    资金模式
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        updatePool(pool.id, {
+                                            isExpense: !pool.isExpense,
+                                        })
+                                    }
+                                    className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
+                                        pool.isExpense
+                                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                    }`}
+                                >
+                                    {pool.isExpense ? "扣款型" : "累积型"}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* ── 弹窗 ── */}
             <AnimatePresence>

@@ -13,6 +13,7 @@ import {
     getAccelerationEstimate,
     getGoalProgress,
 } from "@/horizon/goal";
+import { poolQuota } from "@/horizon/pool";
 import type { GoalImage, Milestone } from "@/horizon/types";
 import { useHorizonStore } from "@/store/horizon";
 
@@ -463,7 +464,7 @@ export default function ProgressPage() {
         }
     }, [progress, goal]);
 
-    const poolMonthlyRate = pool?.fixedAmount ?? 0;
+    const poolMonthlyRate = pool ? poolQuota(pool) : 0;
     const estimate =
         goal && extraAmount && Number(extraAmount) > 0
             ? getAccelerationEstimate(

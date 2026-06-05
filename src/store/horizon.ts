@@ -112,8 +112,7 @@ function buildInitialState(): HorizonState {
         ...tpl,
         id: v4(),
         balance: 0,
-        subItems: [],
-        monthlyFeeItems: tpl.monthlyFeeItems ?? [],
+        subItems: tpl.subItems.map((si) => ({ ...si, id: v4() })),
     }));
 
     // 自动绑定「生活费」池子
@@ -186,7 +185,6 @@ export const useHorizonStore = create<HorizonStore>()(
                             );
                             if (lp) {
                                 lp.balance += livingAlloc;
-                                lp.fixedAmount = livingAlloc;
                             }
                             // 设为上月最后一天，让 ensureDailyDecrement
                             // 补扣从本月 1 号到今天的全部天数
@@ -243,7 +241,6 @@ export const useHorizonStore = create<HorizonStore>()(
                             ...input,
                             id: v4(),
                             balance: 0,
-                            monthlyFeeItems: input.monthlyFeeItems ?? [],
                         });
                         transfers = applyFillToState(state);
                     }),
@@ -431,11 +428,19 @@ export const useHorizonStore = create<HorizonStore>()(
                         name: `${goal.name}基金`,
                         icon: "🌅",
                         color: "amber",
-                        rule: "fixed",
-                        fixedAmount: 2000,
+                        rule: "monthly-list",
                         priority: 4,
                         balance: 0,
-                        subItems: [],
+                        subItems: [
+                            {
+                                id: v4(),
+                                name: `${goal.name}存款`,
+                                icon: "🌅",
+                                budget: 2000,
+                                tracking: "fixed-monthly",
+                                spent: 0,
+                            },
+                        ],
                     };
                 }
                 if (boundPool && boundPool.balance > 0) {
@@ -739,6 +744,57 @@ export const useHorizonStore = create<HorizonStore>()(
                     if (error || !_state) return;
                     const store = useHorizonStore.getState();
 
+                    // ── 数据迁移：旧 fixed 规则 + monthlyFeeItems → monthly-list + subItems ──
+                    let migrated = false;
+                    const pools = store.pools.map((pool) => {
+                        const p = pool as any;
+                        let changed = false;
+
+                        // 旧 fixed 规则 → monthly-list + 添加一个 fixed-monthly subItem
+                        if (p.rule === "fixed" && p.fixedAmount) {
+                            changed = true;
+                            p.rule = "monthly-list";
+                            p.subItems = [
+                                ...p.subItems,
+                                {
+                                    id: `mig-${p.id}`,
+                                    name: p.name,
+                                    icon: p.icon,
+                                    budget: p.fixedAmount,
+                                    tracking: "fixed-monthly",
+                                    spent: 0,
+                                },
+                            ];
+                            delete p.fixedAmount;
+                        }
+
+                        // 旧 monthlyFeeItems → subItems
+                        if (p.monthlyFeeItems?.length > 0) {
+                            changed = true;
+                            p.isExpense = true; // 旧月费清单默认为扣款型
+                            for (const item of p.monthlyFeeItems) {
+                                p.subItems = [
+                                    ...p.subItems,
+                                    {
+                                        id: v4(),
+                                        name: item.name,
+                                        icon: "📋",
+                                        budget: item.amount,
+                                        tracking: "fixed-monthly",
+                                        spent: 0,
+                                    },
+                                ];
+                            }
+                            delete p.monthlyFeeItems;
+                        }
+
+                        if (changed) migrated = true;
+                        return pool;
+                    });
+                    if (migrated) {
+                        useHorizonStore.setState({ pools });
+                    }
+
                     // 旧数据兼容：如果生活费池子不存在，创建一个
                     const lpId = store.livingConfig.linkedPoolId;
                     if (!lpId || !store.pools.some((p) => p.id === lpId)) {
@@ -753,7 +809,6 @@ export const useHorizonStore = create<HorizonStore>()(
                             color: "teal",
                             rule: "residual-factor",
                             residualFactor: 0,
-                            fixedAmount: store.livingConfig.dailyBudget * days,
                             priority: 2,
                             subItems: [],
                         });

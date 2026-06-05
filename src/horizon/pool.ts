@@ -23,21 +23,13 @@ export function distributeSalary(
         let allocated = 0;
 
         switch (pool.rule) {
-            case "fixed": {
-                allocated = Math.min(pool.fixedAmount ?? 0, remaining);
-                break;
-            }
             case "percent": {
                 allocated = Math.round(amount * (pool.percentRate ?? 0));
                 if (allocated > remaining) allocated = remaining;
                 break;
             }
             case "monthly-list": {
-                const total = (pool.monthlyFeeItems ?? []).reduce(
-                    (sum, item) => sum + item.amount,
-                    0,
-                );
-                allocated = Math.min(total, remaining);
+                allocated = Math.min(poolQuota(pool), remaining);
                 break;
             }
             case "residual-factor": {
@@ -207,24 +199,17 @@ export interface PoolFillTransfer {
     amount: number;
 }
 
-/** 固定开销池：从总资金扣款，不在池内留存余额 */
+/** 扣款型池子：isExpense=true，资金不留在池内，只记 quotaDeducted */
 export function isExpensePool(pool: FundPool): boolean {
-    return pool.rule === "fixed" || pool.rule === "monthly-list";
+    return pool.isExpense === true;
 }
 
-/** 池子应扣的配额（固定金额 / 月费清单合计） */
+/** 池子应扣的配额（月费清单子项 budget 合计） */
 export function poolQuota(pool: FundPool): number {
-    switch (pool.rule) {
-        case "fixed":
-            return pool.fixedAmount ?? 0;
-        case "monthly-list":
-            return (pool.monthlyFeeItems ?? []).reduce(
-                (s, i) => s + i.amount,
-                0,
-            );
-        default:
-            return 0;
-    }
+    if (pool.rule !== "monthly-list") return 0;
+    return pool.subItems
+        .filter((si) => si.tracking === "fixed-monthly")
+        .reduce((s, si) => s + si.budget, 0);
 }
 
 /** 本期固定开销是否已扣清 */

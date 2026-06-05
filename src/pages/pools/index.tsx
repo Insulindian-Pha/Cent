@@ -21,6 +21,7 @@ import {
     Image,
     List,
     Plus,
+    Settings,
     Target,
     Wallet,
     X,
@@ -43,7 +44,6 @@ import { useHorizonStore } from "@/store/horizon";
 // ─── 规则显示名 ───
 
 const RULE_LABELS: Record<string, string> = {
-    fixed: "固定金额",
     percent: "按比例",
     "monthly-list": "月费清单",
     "residual-factor": "剩余比例",
@@ -107,18 +107,22 @@ function PoolCard({
     onDelete,
     isLiving,
     livingDaily,
+    livingAlloc,
 }: {
     pool: FundPool;
     onTap: (id: string) => void;
     onDelete: (pool: FundPool) => void;
     isLiving?: boolean;
     livingDaily?: number;
+    livingAlloc?: number;
 }) {
     const calibrateLivingBalance = useHorizonStore(
         (s) => s.calibrateLivingBalance,
     );
+    const updatePool = useHorizonStore((s) => s.updatePool);
     const [calOpen, setCalOpen] = useState(false);
     const [calVal, setCalVal] = useState("");
+    const [ruleOpen, setRuleOpen] = useState(false);
 
     const handleQuickCal = () => {
         const v = Number.parseFloat(calVal);
@@ -252,8 +256,7 @@ function PoolCard({
                                     const sw = 4;
                                     const sr = (sv - sw) / 2;
                                     const sc = 2 * Math.PI * sr;
-                                    const alloc =
-                                        pool.fixedAmount ?? pool.balance;
+                                    const alloc = livingAlloc ?? pool.balance;
                                     const hasBalance = pool.balance > 0;
                                     const spent = hasBalance
                                         ? Math.max(0, alloc - pool.balance)
@@ -350,6 +353,24 @@ function PoolCard({
                         </div>
                     </button>
 
+                    {!isLiving && pool.rule !== "remainder" && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setRuleOpen(!ruleOpen);
+                            }}
+                            className={`size-5 rounded-full flex items-center justify-center shrink-0 transition-colors ml-1 ${
+                                ruleOpen
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-muted text-muted-foreground hover:bg-primary/20 hover:text-primary"
+                            }`}
+                            title="调整分配"
+                        >
+                            <Settings className="size-3" />
+                        </button>
+                    )}
+
                     <button
                         type="button"
                         onClick={() => onDelete(pool)}
@@ -359,6 +380,95 @@ function PoolCard({
                         <X className="size-3" />
                     </button>
                 </div>
+
+                {/* 内联分配调整 */}
+                <AnimatePresence>
+                    {ruleOpen && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="overflow-hidden"
+                        >
+                            <div className="pt-2 mt-2 border-t border-border/50 space-y-2">
+                                {pool.rule === "percent" && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-muted-foreground shrink-0">
+                                            收入 ×
+                                        </span>
+                                        <Input
+                                            type="number"
+                                            value={
+                                                pool.percentRate !== undefined
+                                                    ? Math.round(
+                                                          pool.percentRate *
+                                                              100,
+                                                      )
+                                                    : ""
+                                            }
+                                            onChange={(e) => {
+                                                const v = Number.parseFloat(
+                                                    e.target.value,
+                                                );
+                                                if (Number.isNaN(v)) return;
+                                                updatePool(pool.id, {
+                                                    percentRate: v / 100,
+                                                });
+                                            }}
+                                            className="h-6 w-14 text-center text-[11px]"
+                                            onClick={(e) => e.stopPropagation()}
+                                        />
+                                        <span className="text-[10px] text-muted-foreground shrink-0">
+                                            %
+                                        </span>
+                                    </div>
+                                )}
+
+                                {pool.rule === "residual-factor" && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-muted-foreground shrink-0">
+                                            剩余 ×
+                                        </span>
+                                        <Input
+                                            type="number"
+                                            value={
+                                                pool.residualFactor !==
+                                                undefined
+                                                    ? Math.round(
+                                                          pool.residualFactor *
+                                                              100,
+                                                      )
+                                                    : ""
+                                            }
+                                            onChange={(e) => {
+                                                const v = Number.parseFloat(
+                                                    e.target.value,
+                                                );
+                                                if (Number.isNaN(v)) return;
+                                                updatePool(pool.id, {
+                                                    residualFactor: v / 100,
+                                                });
+                                            }}
+                                            className="h-6 w-14 text-center text-[11px]"
+                                            onClick={(e) => e.stopPropagation()}
+                                        />
+                                        <span className="text-[10px] text-muted-foreground shrink-0">
+                                            %
+                                        </span>
+                                    </div>
+                                )}
+
+                                {pool.rule === "monthly-list" && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                        配额 ¥{poolQuota(pool).toLocaleString()}
+                                        ，修改子项预算请进入详情页
+                                    </span>
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
         </motion.div>
     );
@@ -393,7 +503,7 @@ function AddPoolModal({
 
     const [name, setName] = useState("");
     const [icon, setIcon] = useState("💰");
-    const [rule, setRule] = useState<AllocationRule>("fixed");
+    const [rule, setRule] = useState<AllocationRule>("percent");
     const [amount, setAmount] = useState("");
     const [error, setError] = useState("");
 
@@ -406,10 +516,7 @@ function AddPoolModal({
             return;
         }
 
-        const needsAmount =
-            rule === "fixed" ||
-            rule === "percent" ||
-            rule === "residual-factor";
+        const needsAmount = rule === "percent" || rule === "residual-factor";
         let num = 0;
         if (needsAmount) {
             num = Number.parseFloat(amount);
@@ -426,9 +533,7 @@ function AddPoolModal({
             rule,
             priority: poolCount + 1,
             subItems: [],
-            ...(rule === "fixed" ? { fixedAmount: num } : {}),
             ...(rule === "percent" ? { percentRate: num / 100 } : {}),
-            ...(rule === "monthly-list" ? { monthlyFeeItems: [] } : {}),
             ...(rule === "residual-factor"
                 ? { residualFactor: num / 100 }
                 : {}),
@@ -444,16 +549,15 @@ function AddPoolModal({
         }
         setName("");
         setIcon("💰");
-        setRule("fixed");
+        setRule("percent");
         setAmount("");
         setError("");
         onClose();
     };
 
     const labelByRule: Record<string, string> = {
-        fixed: "固定金额 ¥",
         percent: "比例 %",
-        "monthly-list": "（月费清单，稍后在详情页添加）",
+        "monthly-list": "（月费清单，稍后在详情页添加子项）",
         "residual-factor": "剩余系数 %",
         remainder: "（自动兜底，无需设置金额）",
     };
@@ -519,11 +623,6 @@ function AddPoolModal({
                         >
                             {(
                                 [
-                                    {
-                                        value: "fixed",
-                                        label: "固定金额",
-                                        desc: "每次拿走确定的金额",
-                                    },
                                     {
                                         value: "percent",
                                         label: "按比例",
@@ -800,6 +899,12 @@ export default function PoolsPage() {
     }, [rebalancePools, ensureDailyDecrement]);
 
     const livingPoolId = livingConfig.linkedPoolId;
+    const livingDays = new Date(
+        new Date().getFullYear(),
+        new Date().getMonth() + 1,
+        0,
+    ).getDate();
+    const livingAlloc = livingConfig.dailyBudget * livingDays;
 
     const [salaryOpen, setSalaryOpen] = useState(false);
     const [addPoolOpen, setAddPoolOpen] = useState(false);
@@ -1029,6 +1134,7 @@ export default function PoolsPage() {
                                         }
                                         isLiving={pool.id === livingPoolId}
                                         livingDaily={livingConfig.dailyBudget}
+                                        livingAlloc={livingAlloc}
                                     />
                                 ))}
                             </AnimatePresence>

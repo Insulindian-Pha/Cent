@@ -1038,11 +1038,13 @@ export default function WizardPage() {
                         : undefined,
             });
 
-            // 更新池子 fixedAmount
+            // 更新池子月费子项预算
             const store = useHorizonStore.getState();
             const pool = store.pools.find((p) => p.id === selectedPoolId);
-            if (pool) {
-                store.updatePool(pool.id, { fixedAmount: monthlyMin });
+            if (pool?.subItems.length) {
+                store.updateSubItem(pool.id, pool.subItems[0].id, {
+                    budget: monthlyMin,
+                });
             }
 
             navigate("/", { replace: true });
